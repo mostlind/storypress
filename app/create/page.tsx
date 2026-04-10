@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import Image from "next/image";
 
@@ -12,25 +12,56 @@ interface Message {
 }
 
 const GREETING = "Hey! Tell me about the trip or event you want to turn into a storybook. What happened, and what made it special?";
+const RETURNING_GREETING = "Welcome back! What would you like to add or change about your story?";
 
 export default function CreatePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createSupabaseBrowserClient();
 
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", text: GREETING },
-  ]);
+  const existingProjectId = searchParams.get("projectId");
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(existingProjectId);
   const [pendingPhotoIds, setPendingPhotoIds] = useState<string[]>([]);
   const [pendingPreviewUrls, setPendingPreviewUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [loading, setLoading] = useState(!!existingProjectId);
   const [error, setError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load existing conversation if projectId is provided
+  useEffect(() => {
+    if (!existingProjectId) {
+      setMessages([{ role: "assistant", text: GREETING }]);
+      return;
+    }
+
+    async function loadConversation() {
+      const { data: project } = await supabase
+        .from("projects")
+        .select("conversation, title")
+        .eq("id", existingProjectId)
+        .single();
+
+      if (project?.conversation?.length) {
+        const loaded: Message[] = project.conversation.map((m: { role: string; text: string }) => ({
+          role: m.role as "user" | "assistant",
+          text: m.text,
+        }));
+        setMessages([...loaded, { role: "assistant", text: RETURNING_GREETING }]);
+      } else {
+        setMessages([{ role: "assistant", text: RETURNING_GREETING }]);
+      }
+      setLoading(false);
+    }
+
+    loadConversation();
+  }, [existingProjectId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,14 +71,12 @@ export default function CreatePage() {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
 
-    // Check auth first
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/signup?next=/create"); return; }
 
     setUploading(true);
     setError(null);
 
-    // We need a projectId to upload photos — create one if needed
     let pid = projectId;
     if (!pid) {
       const { data: project } = await supabase
@@ -69,12 +98,8 @@ export default function CreatePage() {
 
     if (!res.ok) { setError(data.error); setUploading(false); return; }
 
-    const newIds = data.uploaded.map((u: { id: string }) => u.id);
-    const newPreviews = files.map((f) => URL.createObjectURL(f));
-
-    setPendingPhotoIds((prev) => [...prev, ...newIds]);
-    setPendingPreviewUrls((prev) => [...prev, ...newPreviews]);
-    setPendingFiles((prev) => [...prev, ...files]);
+    setPendingPhotoIds((prev) => [...prev, ...data.uploaded.map((u: { id: string }) => u.id)]);
+    setPendingPreviewUrls((prev) => [...prev, ...files.map((f) => URL.createObjectURL(f))]);
     setUploading(false);
   }
 
@@ -83,21 +108,13 @@ export default function CreatePage() {
     if (!input.trim() && !pendingPhotoIds.length) return;
     if (thinking) return;
 
-    // Check auth
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/signup?next=/create"); return; }
 
-    const userMessage: Message = {
-      role: "user",
-      text: input,
-      photoUrls: pendingPreviewUrls,
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setPendingFiles([]);
-    setPendingPreviewUrls([]);
+    setMessages((prev) => [...prev, { role: "user", text: input, photoUrls: pendingPreviewUrls }]);
     const photoIdsToSend = [...pendingPhotoIds];
+    setInput("");
+    setPendingPreviewUrls([]);
     setPendingPhotoIds([]);
     setThinking(true);
     setError(null);
@@ -105,24 +122,18 @@ export default function CreatePage() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        projectId,
-        message: input,
-        photoIds: photoIdsToSend,
-      }),
+      body: JSON.stringify({ projectId, message: input, photoIds: photoIdsToSend }),
     });
 
     const data = await res.json();
     setThinking(false);
 
     if (!res.ok) { setError(data.error ?? "Something went wrong"); return; }
-
     if (!projectId) setProjectId(data.projectId);
 
     setMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
 
     if (data.isReady) {
-      // Kick off generation then redirect
       await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,19 +150,57 @@ export default function CreatePage() {
     }
   }
 
+  async function handleRegenerate() {
+    if (!projectId) return;
+    await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    });
+    router.push(`/projects/${projectId}`);
+  }
+
+  if (loading) {
+    return (
+      <main className="flex flex-col h-screen max-w-2xl mx-auto items-center justify-center">
+        <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      </main>
+    );
+  }
+
   return (
     <main className="flex flex-col h-screen max-w-2xl mx-auto">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-100">
-        <h1 className="font-semibold text-gray-900">Create a storybook</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Tell your story — we'll ask questions, then turn it into a printed book.</p>
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h1 className="font-semibold text-gray-900">
+            {existingProjectId ? "Add more detail" : "Create a storybook"}
+          </h1>
+          <p className="text-xs text-gray-400 mt-0.5">Tell your story — we'll ask questions, then turn it into a printed book.</p>
+        </div>
+        {existingProjectId && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => router.push(`/projects/${existingProjectId}`)}
+              className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300"
+            >
+              Back to book
+            </button>
+            <button
+              onClick={handleRegenerate}
+              className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700"
+            >
+              Regenerate
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] space-y-2`}>
+            <div className="max-w-[80%] space-y-2">
               {msg.photoUrls?.length ? (
                 <div className="grid grid-cols-3 gap-1.5">
                   {msg.photoUrls.map((url, j) => (
@@ -186,10 +235,7 @@ export default function CreatePage() {
           </div>
         )}
 
-        {error && (
-          <p className="text-center text-sm text-red-500">{error}</p>
-        )}
-
+        {error && <p className="text-center text-sm text-red-500">{error}</p>}
         <div ref={bottomRef} />
       </div>
 

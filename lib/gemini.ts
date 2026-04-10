@@ -1,10 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import * as fs from "node:fs";
-import type { StorybookChapter } from "@/types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
-
 const MODEL = "gemini-3.1-flash-image-preview";
+
+// ─── Chat ────────────────────────────────────────────────────────────────────
 
 const CHAT_SYSTEM_PROMPT = `You are a warm, curious interviewer helping someone turn their memories into a beautiful printed storybook. Your job is to ask follow-up questions that draw out rich, specific details — the kind that make a story come alive.
 
@@ -24,99 +23,82 @@ export interface ConversationMessage {
   photo_ids: string[];
 }
 
-interface ChatOptions {
+export async function chat({
+  conversation,
+  newPhotoBuffers,
+}: {
   conversation: ConversationMessage[];
   newPhotoBuffers: { id: string; buffer: Buffer }[];
-}
-
-export async function chat({ conversation, newPhotoBuffers }: ChatOptions): Promise<{
-  reply: string;
-  isReady: boolean;
-}> {
-  // Build a single prompt from the full conversation history
-  const parts: object[] = [{ text: CHAT_SYSTEM_PROMPT + "\n\n---\n\n" }];
+}): Promise<{ reply: string; isReady: boolean }> {
+  const prompt: object[] = [{ text: CHAT_SYSTEM_PROMPT + "\n\n---\n\n" }];
 
   for (const msg of conversation) {
-    const prefix = msg.role === "user" ? "User: " : "You: ";
-    parts.push({ text: prefix + msg.text });
+    prompt.push({
+      text: `${msg.role === "user" ? "User" : "You"}: ${msg.text}`,
+    });
   }
 
-  // Attach any new photos from the latest user message
   for (const { buffer } of newPhotoBuffers) {
-    parts.push({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: buffer.toString("base64"),
-      },
+    prompt.push({
+      inlineData: { mimeType: "image/jpeg", data: buffer.toString("base64") },
     });
   }
 
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: parts,
+    contents: prompt,
   });
 
-  const rawText = response.candidates![0].content.parts
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (!parts?.length)
+    throw new Error(
+      `Gemini chat returned empty response. Full response: ${JSON.stringify(response)}`,
+    );
+
+  const rawText = parts
     .filter((p: any) => p.text)
     .map((p: any) => p.text)
     .join("");
 
   const isReady = rawText.includes("[READY]");
   const reply = rawText.replace("[READY]", "").trim();
-
   return { reply, isReady };
 }
 
-interface GenerateStorybookOptions {
-  conversation: ConversationMessage[];
-  photoPaths: { id: string; path: string }[];
-}
+// ─── Phase 1: Generate story beats (text only) ───────────────────────────────
 
-interface GenerateStorybookResult {
-  chapters: StorybookChapter[];
-  coverImageBuffer: Buffer | null;
-}
-
-export async function generateStorybook({
+export async function generateStoryBeats({
   conversation,
-  photoPaths,
-}: GenerateStorybookOptions): Promise<GenerateStorybookResult> {
+  photoBuffers,
+}: {
+  conversation: ConversationMessage[];
+  photoBuffers: Buffer[];
+}): Promise<string[]> {
   const transcript = conversation
     .map((m) => `${m.role === "user" ? "Person" : "Interviewer"}: ${m.text}`)
     .join("\n\n");
 
-  const photoParts = photoPaths.map(({ path }) => ({
+  const photoParts = photoBuffers.map((buf) => ({
     inlineData: {
       mimeType: "image/jpeg" as const,
-      data: fs.readFileSync(path).toString("base64"),
+      data: buf.toString("base64"),
     },
   }));
 
   const prompt = [
     {
-      text: `You are a creative author turning someone's personal memories into a beautiful printed storybook.
+      text: `You are a creative author turning someone's memories into a printed storybook.
 
-Here is the interview transcript capturing their story:
+Here is the interview transcript:
 
 ${transcript}
 
-I'm also providing ${photoPaths.length} photos from the trip. Study them carefully and choose the best ones for each chapter.
+${photoBuffers.length > 0 ? `I'm also providing ${photoBuffers.length} photos from the trip for context.` : ""}
 
-Please:
-1. Write a 3-chapter narrative storybook. Each chapter should have a title and 2-3 paragraphs of warm, vivid prose drawn from the interview details.
-2. For each chapter, list the indices (0-based) of the most fitting photos from the provided set.
-3. Generate a beautiful cover image that captures the mood and essence of the story.
+Write exactly 12 story beats — short, vivid prose passages of 3-5 sentences each. Together they should tell the full arc of the story: arrival, experiences, people, moments, feelings, and reflection. Each beat will occupy one page of a printed book.
 
-Respond with JSON in this exact format, followed by the cover image:
-{
-  "chapters": [
-    {
-      "title": "Chapter title",
-      "narrative": "Chapter text...",
-      "photo_ids": [0, 2]
-    }
-  ]
-}`,
+Respond with a JSON array of exactly 12 strings, nothing else:
+["Beat 1 text...", "Beat 2 text...", ..., "Beat 12 text..."]`,
     },
     ...photoParts,
   ];
@@ -126,34 +108,108 @@ Respond with JSON in this exact format, followed by the cover image:
     contents: prompt,
   });
 
-  let chaptersJson: StorybookChapter[] = [];
-  let coverImageBuffer: Buffer | null = null;
+  const candidate = response.candidates?.[0];
+  if (!candidate)
+    throw new Error(
+      `Gemini returned no candidates. Response: ${JSON.stringify(response)}`,
+    );
 
-  for (const part of response.candidates![0].content.parts) {
-    if (part.text) {
-      const jsonMatch = part.text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        chaptersJson = parsed.chapters;
-      }
-    } else if (part.inlineData) {
-      coverImageBuffer = Buffer.from(part.inlineData.data!, "base64");
-    }
+  const finishReason = candidate.finishReason;
+  if (finishReason && finishReason !== "STOP") {
+    throw new Error(
+      `Gemini stopped with reason: ${finishReason}. Response: ${JSON.stringify(candidate)}`,
+    );
   }
 
-  return { chapters: chaptersJson, coverImageBuffer };
+  const parts = candidate.content?.parts;
+  if (!parts?.length)
+    throw new Error(
+      `Gemini returned empty parts. Candidate: ${JSON.stringify(candidate)}`,
+    );
+
+  const text = parts
+    .filter((p: any) => p.text)
+    .map((p: any) => p.text)
+    .join("");
+
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch)
+    throw new Error(
+      `Gemini did not return a valid beats array. Got: ${text.slice(0, 500)}`,
+    );
+
+  const beats: string[] = JSON.parse(jsonMatch[0]);
+
+  // Enforce exactly 12
+  if (beats.length < 12) {
+    while (beats.length < 12) beats.push("...");
+  }
+  return beats.slice(0, 12);
 }
 
-export async function generateCaption(photoPath: string): Promise<string> {
-  const data = fs.readFileSync(photoPath).toString("base64");
+// ─── Phase 2: Generate image for a single beat ───────────────────────────────
+
+export async function generateBeatImage({
+  beatText,
+  beatIndex,
+  referenceBuffers,
+  previousImageBuffers,
+}: {
+  beatText: string;
+  beatIndex: number;
+  referenceBuffers: Buffer[]; // user's uploaded photos
+  previousImageBuffers: Buffer[]; // already-generated beat images for consistency
+}): Promise<Buffer | null> {
+  const refParts = referenceBuffers.slice(0, 3).map((buf) => ({
+    inlineData: {
+      mimeType: "image/jpeg" as const,
+      data: buf.toString("base64"),
+    },
+  }));
+
+  const prevParts = previousImageBuffers.map((buf) => ({
+    inlineData: {
+      mimeType: "image/jpeg" as const,
+      data: buf.toString("base64"),
+    },
+  }));
+
+  const hasPrevious = previousImageBuffers.length > 0;
+  const hasReference = referenceBuffers.length > 0;
+
+  const prompt = [
+    {
+      text: `You are illustrating page ${beatIndex + 1} of a personal storybook — the kind made to capture a real memory, trip, or moment in someone's life, and often given as a gift. Create a warm, expressive illustration in a classic illustrated storybook style — painterly, soft edges, rich colors, evocative of the mood and setting. Think editorial illustration meets fine art picture book. No text or lettering in the image. The image will be printed as a full-bleed 8x8 inch square page.
+
+The story beat for this page:
+"${beatText}"
+
+${hasReference ? "Reference photos are provided showing the real people, places, and objects in this story — use them to inform the characters and settings, but render everything in the illustrated style, not photorealistic." : ""}
+
+${hasPrevious ? `The illustrations generated for the previous ${previousImageBuffers.length} page(s) are also attached. You MUST maintain strict visual consistency: same character appearances, same art style, same color palette, same line quality across all pages.` : "This is the first illustration — establish the art style, color palette, and character designs that will be used consistently throughout the book."}`,
+    },
+    ...refParts,
+    ...prevParts,
+  ];
 
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: [
-      { text: "Write a short, warm caption (1-2 sentences) for this photo as it would appear in a personal storybook." },
-      { inlineData: { mimeType: "image/jpeg", data } },
-    ],
+    contents: prompt,
   });
 
-  return response.candidates![0].content.parts[0].text ?? "";
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (!parts?.length) {
+    console.warn(
+      `[generateBeatImage] No parts in response for beat ${beatIndex}. Skipping.`,
+    );
+    return null;
+  }
+
+  for (const part of parts) {
+    if ((part as any).inlineData) {
+      return Buffer.from((part as any).inlineData.data, "base64");
+    }
+  }
+
+  return null;
 }

@@ -1,124 +1,114 @@
-import { PDFDocument, StandardFonts, rgb, PDFPage } from "pdf-lib";
-import type { Storybook, Photo } from "@/types";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import type { StoryBeat } from "@/types";
 
-// Lulu 6x9 print specs: 6.25x9.25 with 0.125" bleed on all sides
-const PAGE_WIDTH = 6.25 * 72;   // points
-const PAGE_HEIGHT = 9.25 * 72;
-const MARGIN = 0.75 * 72;
+// Lulu 8x8 square with 0.125" bleed on all sides
+const PAGE_W = 8.25 * 72;   // 594pt
+const PAGE_H = 8.25 * 72;   // 594pt
+const BLEED = 0.125 * 72;    // 9pt
+const MARGIN = 0.875 * 72;   // 63pt (bleed + 0.75" safe area)
+
+const CREAM = rgb(0.98, 0.96, 0.93);
+const INK   = rgb(0.12, 0.10, 0.09);
+const MUTED = rgb(0.55, 0.50, 0.46);
 
 export async function generateStorybookPdf(
-  storybook: Storybook,
-  photos: Photo[],
-  coverImageBuffer: Buffer | null
+  beats: StoryBeat[],
+  getBeatImageBuffer: (imagePath: string) => Promise<Buffer | null>,
+  title: string
 ): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  const fontRegular = await doc.embedFont(StandardFonts.TimesRoman);
-  const fontBold = await doc.embedFont(StandardFonts.TimesRomanBold);
+  const serif = await doc.embedFont(StandardFonts.TimesRoman);
+  const serifBold = await doc.embedFont(StandardFonts.TimesRomanBold);
 
-  // Cover page
-  const coverPage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  if (coverImageBuffer) {
-    const coverImage = await doc.embedJpg(coverImageBuffer);
-    coverPage.drawImage(coverImage, {
-      x: 0,
-      y: 0,
-      width: PAGE_WIDTH,
-      height: PAGE_HEIGHT,
-    });
-  } else {
-    coverPage.drawRectangle({
-      x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT,
-      color: rgb(0.95, 0.9, 0.98),
-    });
-  }
+  // ── Cover page ───────────────────────────────────────────────────────────
+  const cover = doc.addPage([PAGE_W, PAGE_H]);
+  cover.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: CREAM });
 
-  // Title on cover
-  const photoMap = new Map(photos.map((p) => [p.id, p]));
+  // Decorative top bar
+  cover.drawRectangle({ x: MARGIN, y: PAGE_H - MARGIN - 4, width: PAGE_W - MARGIN * 2, height: 1.5, color: INK });
 
-  // Chapter pages
-  for (let i = 0; i < storybook.chapters.length; i++) {
-    const chapter = storybook.chapters[i];
+  const titleSize = title.length > 30 ? 28 : 36;
+  cover.drawText(title, {
+    x: MARGIN,
+    y: PAGE_H / 2 + 20,
+    size: titleSize,
+    font: serifBold,
+    color: INK,
+    maxWidth: PAGE_W - MARGIN * 2,
+    lineHeight: titleSize * 1.3,
+  });
 
-    // Chapter title page
-    const titlePage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-    drawBackground(titlePage);
-    titlePage.drawText(`Chapter ${i + 1}`, {
+  cover.drawRectangle({ x: MARGIN, y: PAGE_H / 2 - 10, width: PAGE_W - MARGIN * 2, height: 1, color: MUTED });
+
+  cover.drawText("A storybook", {
+    x: MARGIN,
+    y: PAGE_H / 2 - 34,
+    size: 13,
+    font: serif,
+    color: MUTED,
+  });
+
+  // ── 12 spreads: text left, image right ───────────────────────────────────
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i];
+
+    // Left page — text
+    const textPage = doc.addPage([PAGE_W, PAGE_H]);
+    textPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: CREAM });
+
+    // Page number
+    textPage.drawText(String(i + 1), {
       x: MARGIN,
-      y: PAGE_HEIGHT - MARGIN - 20,
-      size: 14,
-      font: fontRegular,
-      color: rgb(0.5, 0.3, 0.7),
+      y: PAGE_H - MARGIN + 18,
+      size: 9,
+      font: serif,
+      color: MUTED,
     });
-    titlePage.drawText(chapter.title, {
+
+    // Top rule
+    textPage.drawRectangle({ x: MARGIN, y: PAGE_H - MARGIN, width: PAGE_W - MARGIN * 2, height: 0.75, color: MUTED });
+
+    // Story beat text
+    textPage.drawText(beat.text, {
       x: MARGIN,
-      y: PAGE_HEIGHT - MARGIN - 60,
-      size: 24,
-      font: fontBold,
-      color: rgb(0.1, 0.1, 0.1),
-      maxWidth: PAGE_WIDTH - MARGIN * 2,
+      y: PAGE_H / 2 + 40,
+      size: 13,
+      font: serif,
+      color: INK,
+      maxWidth: PAGE_W - MARGIN * 2,
+      lineHeight: 22,
     });
 
-    // Narrative text (simple wrapping — replace with richer layout as needed)
-    titlePage.drawText(chapter.narrative, {
-      x: MARGIN,
-      y: PAGE_HEIGHT - MARGIN - 120,
-      size: 11,
-      font: fontRegular,
-      color: rgb(0.2, 0.2, 0.2),
-      maxWidth: PAGE_WIDTH - MARGIN * 2,
-      lineHeight: 18,
-    });
+    // Bottom rule
+    textPage.drawRectangle({ x: MARGIN, y: MARGIN - 12, width: PAGE_W - MARGIN * 2, height: 0.75, color: MUTED });
 
-    // Photo pages for this chapter
-    for (const photoId of chapter.photo_ids) {
-      const photo = photoMap.get(photoId);
-      if (!photo) continue;
+    // Right page — full-bleed image
+    const imgPage = doc.addPage([PAGE_W, PAGE_H]);
+    imgPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.15, 0.13, 0.12) });
 
-      const photoPage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-      drawBackground(photoPage);
-
+    if (beat.image_path) {
       try {
-        const photoRes = await fetch(photo.public_url);
-        const photoBuffer = Buffer.from(await photoRes.arrayBuffer());
-        const embedded = await doc.embedJpg(photoBuffer);
-        const { width, height } = embedded.scale(1);
-        const maxW = PAGE_WIDTH - MARGIN * 2;
-        const maxH = PAGE_HEIGHT - MARGIN * 2 - 40;
-        const scale = Math.min(maxW / width, maxH / height);
-        const drawW = width * scale;
-        const drawH = height * scale;
-        photoPage.drawImage(embedded, {
-          x: (PAGE_WIDTH - drawW) / 2,
-          y: (PAGE_HEIGHT - drawH) / 2 + 20,
-          width: drawW,
-          height: drawH,
-        });
+        const buf = await getBeatImageBuffer(beat.image_path);
+        if (buf) {
+          const img = await doc.embedJpg(buf);
+          const { width, height } = img.scale(1);
+          // Cover-fit: scale so image fills the page, crop if needed
+          const scale = Math.max(PAGE_W / width, PAGE_H / height);
+          const drawW = width * scale;
+          const drawH = height * scale;
+          imgPage.drawImage(img, {
+            x: (PAGE_W - drawW) / 2,
+            y: (PAGE_H - drawH) / 2,
+            width: drawW,
+            height: drawH,
+          });
+        }
       } catch {
-        // Photo failed to load — leave blank page
-      }
-
-      if (photo.caption) {
-        photoPage.drawText(photo.caption, {
-          x: MARGIN,
-          y: MARGIN - 10,
-          size: 10,
-          font: fontRegular,
-          color: rgb(0.4, 0.4, 0.4),
-          maxWidth: PAGE_WIDTH - MARGIN * 2,
-        });
+        // Leave dark background if image fails
       }
     }
   }
 
   const bytes = await doc.save();
   return Buffer.from(bytes);
-}
-
-function drawBackground(page: PDFPage) {
-  page.drawRectangle({
-    x: 0, y: 0,
-    width: page.getWidth(),
-    height: page.getHeight(),
-    color: rgb(0.99, 0.98, 0.97),
-  });
 }

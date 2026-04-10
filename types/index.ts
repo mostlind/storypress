@@ -36,19 +36,18 @@ export interface Photo {
   created_at: string;
 }
 
-export interface StorybookChapter {
-  title: string;
-  narrative: string;
-  photo_ids: string[];
+export interface StoryBeat {
+  text: string;
+  image_path: string | null; // storage path in "storybooks" bucket
 }
 
 export interface Storybook {
   id: string;
   project_id: string;
-  chapters: StorybookChapter[];
+  beats: StoryBeat[];
   cover_image_path: string | null;
   pdf_path: string | null;
-  status: "generating" | "ready" | "failed";
+  status: "generating" | "generating_images" | "ready" | "failed";
   created_at: string;
 }
 

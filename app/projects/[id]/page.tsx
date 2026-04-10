@@ -3,6 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import Image from "next/image";
 import OrderForm from "@/components/OrderForm";
 import GeneratingView from "@/components/GeneratingView";
+import RegenerateButton from "@/components/RegenerateButton";
+import type { StoryBeat } from "@/types";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -19,20 +21,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   if (!project) notFound();
 
-  const { data: storybook } = await supabase
-    .from("storybooks")
-    .select("*")
-    .eq("project_id", project.id)
-    .single();
-
-  const { data: photos } = await supabase
-    .from("photos")
-    .select("*")
-    .eq("project_id", project.id)
-    .order("order");
-
-  if (project.status === "generating") {
-    return <GeneratingView />;
+  if (project.status === "generating" || project.status === "generating_images") {
+    const label = project.status === "generating_images"
+      ? "Illustrating your story..."
+      : "Writing your story...";
+    return <GeneratingView label={label} />;
   }
 
   if (project.status === "failed") {
@@ -45,75 +38,72 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  // Generate signed URLs (1 hour expiry) for all private storage objects
-  let coverUrl: string | null = null;
-  if (storybook?.cover_image_path) {
-    const { data } = await supabase.storage
-      .from("storybooks")
-      .createSignedUrl(storybook.cover_image_path, 3600);
-    coverUrl = data?.signedUrl ?? null;
-  }
+  const { data: storybook } = await supabase
+    .from("storybooks")
+    .select("*")
+    .eq("project_id", project.id)
+    .single();
 
-  const photoUrlMap = new Map<string, string>();
-  if (photos?.length) {
+  // Generate signed URLs for all beat images
+  const beats: StoryBeat[] = storybook?.beats ?? [];
+  const imagePaths = beats.map((b) => b.image_path).filter(Boolean) as string[];
+
+  const signedUrlMap = new Map<string, string>();
+  if (imagePaths.length) {
     const { data: signedUrls } = await supabase.storage
-      .from("photos")
-      .createSignedUrls(photos.map((p) => p.storage_path), 3600);
+      .from("storybooks")
+      .createSignedUrls(imagePaths, 3600);
 
     signedUrls?.forEach((entry, i) => {
-      if (entry.signedUrl) photoUrlMap.set(photos[i].id, entry.signedUrl);
+      if (entry.signedUrl) signedUrlMap.set(imagePaths[i], entry.signedUrl);
     });
   }
 
   return (
-    <main className="max-w-3xl mx-auto px-6 py-12">
-      <h1 className="text-3xl font-bold mb-1">{project.title}</h1>
-      <p className="text-gray-500 mb-8">{project.description}</p>
-
-      {storybook && (
-        <div className="space-y-10 mb-16">
-          {coverUrl && (
-            <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-gray-100">
-              <Image src={coverUrl} alt="Cover" fill className="object-cover" />
-            </div>
-          )}
-
-          {storybook.chapters?.map((chapter: any, i: number) => (
-            <section key={i} className="space-y-4">
-              <h2 className="text-2xl font-bold">
-                <span className="text-brand-500 text-lg font-normal">Chapter {i + 1} — </span>
-                {chapter.title}
-              </h2>
-              <p className="text-gray-700 leading-relaxed whitespace-pre-line">
-                {chapter.narrative}
-              </p>
-
-              {chapter.photo_ids?.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {chapter.photo_ids.slice(0, 4).map((photoId: string) => {
-                    const photo = photos?.find((p) => p.id === photoId);
-                    const signedUrl = photoUrlMap.get(photoId);
-                    if (!photo || !signedUrl) return null;
-                    return (
-                      <div key={photoId} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
-                        <Image src={signedUrl} alt={photo.caption ?? ""} fill className="object-cover" />
-                        {photo.caption && (
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-2 py-1">
-                            {photo.caption}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ))}
+    <main className="max-w-4xl mx-auto px-6 py-12">
+      <div className="mb-10 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">{project.title}</h1>
+          <p className="text-gray-500">{beats.length} pages</p>
         </div>
-      )}
+        <a
+          href={`/create?projectId=${project.id}`}
+          className="text-sm text-brand-600 hover:underline mt-1"
+        >
+          Add detail / regenerate
+        </a>
+      </div>
+
+      {beats.length === 0 && <RegenerateButton projectId={project.id} />}
+
+      {/* Beat spreads: text left, image right */}
+      <div className="space-y-6">
+        {beats.map((beat, i) => {
+          const signedUrl = beat.image_path ? signedUrlMap.get(beat.image_path) : null;
+          return (
+            <div key={i} className="grid grid-cols-2 rounded-xl overflow-hidden border border-gray-200 aspect-[2/1]">
+              {/* Left: text page */}
+              <div className="bg-[#faf8f5] flex flex-col justify-center px-8 py-8 border-r border-gray-200">
+                <p className="text-xs text-gray-400 mb-4 font-mono">{i + 1}</p>
+                <p className="text-gray-800 leading-relaxed text-sm">{beat.text}</p>
+              </div>
+              {/* Right: image page */}
+              <div className="relative bg-gray-900">
+                {signedUrl ? (
+                  <Image src={signedUrl} alt={`Page ${i + 1}`} fill className="object-cover" />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-gray-600 border-t-gray-300 rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {project.status === "ready" && (
-        <div className="border-t border-gray-200 pt-10">
+        <div className="border-t border-gray-200 mt-12 pt-10">
           <h2 className="text-2xl font-bold mb-2">Order your printed book</h2>
           <p className="text-gray-500 mb-6">
             We'll print and ship a hardcover book directly to you — $49.99 including shipping.

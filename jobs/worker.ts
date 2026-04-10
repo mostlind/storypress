@@ -3,7 +3,8 @@ import { Worker, type Job } from "bullmq";
 import { makeRedisConnection, QUEUES } from "@/lib/queue";
 
 const redisConnection = makeRedisConnection();
-import { generateStorybook } from "@/lib/gemini";
+
+import { generateStoryBeats, generateBeatImage } from "@/lib/gemini";
 import { generateStorybookPdf } from "@/lib/pdf";
 import { submitPrintOrder } from "@/lib/lulu";
 import { createSupabaseServiceClient } from "@/lib/supabase-server";
@@ -11,100 +12,114 @@ import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 import type { GenerateStorybookJob, GeneratePdfJob, SubmitPrintOrderJob } from "@/lib/queue";
+import type { StoryBeat } from "@/types";
 
 const supabase = createSupabaseServiceClient();
 
-// Worker: Generate storybook from photos + description
+// ── Worker: Generate storybook ───────────────────────────────────────────────
 new Worker<GenerateStorybookJob>(
   QUEUES.GENERATE_STORYBOOK,
   async (job: Job<GenerateStorybookJob>) => {
     const { projectId } = job.data;
     console.log(`[generate-storybook] Starting job for project ${projectId}`);
+
     try {
+      const { data: project } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", projectId)
+        .single();
 
-    // Fetch project and photos
-    const { data: project } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
+      if (!project) throw new Error("Project not found");
 
-    const { data: photos } = await supabase
-      .from("photos")
-      .select("*")
-      .eq("project_id", projectId)
-      .order("order");
-
-    if (!project) throw new Error("Project not found");
-    console.log(`[generate-storybook] Project loaded. ${photos?.length ?? 0} photos. Conversation has ${project.conversation?.length ?? 0} messages.`);
-
-    // Download photos to temp dir (photos are optional — AI works from conversation alone if none)
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "storybook-"));
-    const photoPaths: { id: string; path: string }[] = [];
-
-    for (const photo of (photos ?? [])) {
-      const { data } = await supabase.storage
+      const { data: photos } = await supabase
         .from("photos")
-        .download(photo.storage_path);
-      if (!data) continue;
-      const tmpPath = path.join(tmpDir, `${photo.id}.jpg`);
-      const buffer = Buffer.from(await data.arrayBuffer());
-      fs.writeFileSync(tmpPath, buffer);
-      photoPaths.push({ id: photo.id, path: tmpPath });
-    }
+        .select("*")
+        .eq("project_id", projectId)
+        .order("order");
 
-    console.log(`[generate-storybook] Downloaded ${photoPaths.length} photos. Calling Gemini...`);
+      console.log(`[generate-storybook] ${photos?.length ?? 0} photos, ${project.conversation?.length ?? 0} conversation messages`);
 
-    // Generate storybook via Gemini using full conversation transcript
-    const { chapters, coverImageBuffer } = await generateStorybook({
-      conversation: project.conversation ?? [],
-      photoPaths,
-    });
+      // Download all user photos as buffers (used as reference for both beats + images)
+      const photoBuffers: Buffer[] = [];
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "storybook-"));
 
-    console.log(`[generate-storybook] Gemini returned ${chapters.length} chapters. Cover image: ${coverImageBuffer ? "yes" : "no"}`);
+      for (const photo of photos ?? []) {
+        const { data } = await supabase.storage.from("photos").download(photo.storage_path);
+        if (!data) continue;
+        const buf = Buffer.from(await data.arrayBuffer());
+        photoBuffers.push(buf);
+        fs.writeFileSync(path.join(tmpDir, `${photo.id}.jpg`), buf);
+      }
 
-    // Upload cover image if generated
-    let coverImagePath: string | null = null;
-    if (coverImageBuffer) {
-      coverImagePath = `${projectId}/cover.jpg`;
-      await supabase.storage
+      // ── Phase 1: Generate 12 story beats (text) ──────────────────────────
+      console.log(`[generate-storybook] Phase 1: generating 12 story beats...`);
+
+      const beatTexts = await generateStoryBeats({
+        conversation: project.conversation ?? [],
+        photoBuffers,
+      });
+
+      console.log(`[generate-storybook] Got ${beatTexts.length} beats`);
+
+      // Save storybook with beats (no images yet)
+      const initialBeats: StoryBeat[] = beatTexts.map((text) => ({ text, image_path: null }));
+
+      const { data: storybook, error: upsertError } = await supabase
         .from("storybooks")
-        .upload(coverImagePath, coverImageBuffer, { contentType: "image/jpeg", upsert: true });
-    }
+        .upsert({
+          project_id: projectId,
+          beats: initialBeats,
+          cover_image_path: null,
+          status: "generating_images",
+        }, { onConflict: "project_id" })
+        .select()
+        .single();
 
-    // Map photo_ids from indices to actual photo IDs
-    const mappedChapters = chapters.map((ch) => ({
-      ...ch,
-      photo_ids: ch.photo_ids.map((idx: unknown) => photoPaths[idx as number]?.id).filter(Boolean),
-    }));
+      if (upsertError || !storybook) throw new Error(`Failed to save storybook: ${upsertError?.message}`);
 
-    // Save storybook record (upsert in case this project was generated before)
-    const { data: storybook, error: storybookError } = await supabase
-      .from("storybooks")
-      .upsert({
-        project_id: projectId,
-        chapters: mappedChapters,
-        cover_image_path: coverImagePath,
-        status: "ready",
-      }, { onConflict: "project_id" })
-      .select()
-      .single();
+      // ── Phase 2: Generate image for each beat ────────────────────────────
+      const beats: StoryBeat[] = [...initialBeats];
+      const generatedImageBuffers: Buffer[] = []; // accumulate for consistency
 
-    if (storybookError || !storybook) throw new Error(`Failed to save storybook: ${storybookError?.message}`);
+      for (let i = 0; i < beats.length; i++) {
+        console.log(`[generate-storybook] Phase 2: generating image ${i + 1}/12...`);
 
-    // Update project status
-    await supabase
-      .from("projects")
-      .update({ status: "ready" })
-      .eq("id", projectId);
+        const imageBuffer = await generateBeatImage({
+          beatText: beats[i].text,
+          beatIndex: i,
+          referenceBuffers: photoBuffers,
+          previousImageBuffers: generatedImageBuffers,
+        });
 
-    // Cleanup temp files
-    fs.rmSync(tmpDir, { recursive: true });
+        if (imageBuffer) {
+          const imagePath = `${projectId}/beat-${i}.jpg`;
+          await supabase.storage
+            .from("storybooks")
+            .upload(imagePath, imageBuffer, { contentType: "image/jpeg", upsert: true });
 
-    console.log(`[generate-storybook] Done. Storybook ${storybook.id} is ready.`);
-    return { storybookId: storybook.id };
+          beats[i] = { ...beats[i], image_path: imagePath };
+          generatedImageBuffers.push(imageBuffer);
+
+          // Update DB after each image so progress is visible
+          await supabase
+            .from("storybooks")
+            .update({ beats })
+            .eq("id", storybook.id);
+        }
+      }
+
+      // Mark storybook and project as ready
+      await supabase.from("storybooks").update({ status: "ready", beats }).eq("id", storybook.id);
+      await supabase.from("projects").update({ status: "ready" }).eq("id", projectId);
+
+      fs.rmSync(tmpDir, { recursive: true });
+
+      console.log(`[generate-storybook] Done. Storybook ${storybook.id} is ready.`);
+      return { storybookId: storybook.id };
+
     } catch (err) {
-      console.error("Storybook generation failed:", err);
+      console.error("[generate-storybook] Failed:", err);
       await supabase.from("projects").update({ status: "failed" }).eq("id", projectId);
       throw err;
     }
@@ -112,11 +127,12 @@ new Worker<GenerateStorybookJob>(
   { connection: redisConnection }
 );
 
-// Worker: Generate print-ready PDF
+// ── Worker: Generate print-ready PDF ─────────────────────────────────────────
 new Worker<GeneratePdfJob>(
   QUEUES.GENERATE_PDF,
   async (job: Job<GeneratePdfJob>) => {
     const { storybookId, projectId } = job.data;
+    console.log(`[generate-pdf] Starting for storybook ${storybookId}`);
 
     const { data: storybook } = await supabase
       .from("storybooks")
@@ -124,44 +140,43 @@ new Worker<GeneratePdfJob>(
       .eq("id", storybookId)
       .single();
 
-    const { data: photos } = await supabase
-      .from("photos")
-      .select("*")
-      .eq("project_id", projectId);
+    const { data: project } = await supabase
+      .from("projects")
+      .select("title")
+      .eq("id", projectId)
+      .single();
 
-    if (!storybook || !photos) throw new Error("Storybook or photos not found");
+    if (!storybook) throw new Error("Storybook not found");
 
-    // Fetch cover image if exists
-    let coverImageBuffer: Buffer | null = null;
-    if (storybook.cover_image_path) {
-      const { data } = await supabase.storage
-        .from("storybooks")
-        .download(storybook.cover_image_path);
-      if (data) coverImageBuffer = Buffer.from(await data.arrayBuffer());
+    const beats: StoryBeat[] = storybook.beats ?? [];
+
+    async function getBeatImageBuffer(imagePath: string): Promise<Buffer | null> {
+      const { data } = await supabase.storage.from("storybooks").download(imagePath);
+      if (!data) return null;
+      return Buffer.from(await data.arrayBuffer());
     }
 
-    const pdfBuffer = await generateStorybookPdf(storybook, photos, coverImageBuffer);
+    const pdfBuffer = await generateStorybookPdf(beats, getBeatImageBuffer, project?.title ?? "My Storybook");
 
     const pdfPath = `${projectId}/${storybookId}.pdf`;
     await supabase.storage
       .from("storybooks")
       .upload(pdfPath, pdfBuffer, { contentType: "application/pdf", upsert: true });
 
-    await supabase
-      .from("storybooks")
-      .update({ pdf_path: pdfPath })
-      .eq("id", storybookId);
+    await supabase.from("storybooks").update({ pdf_path: pdfPath }).eq("id", storybookId);
 
+    console.log(`[generate-pdf] PDF saved to ${pdfPath}`);
     return { pdfPath };
   },
   { connection: redisConnection }
 );
 
-// Worker: Submit print order to Lulu
+// ── Worker: Submit print order to Lulu ───────────────────────────────────────
 new Worker<SubmitPrintOrderJob>(
   QUEUES.SUBMIT_PRINT_ORDER,
   async (job: Job<SubmitPrintOrderJob>) => {
     const { orderId } = job.data;
+    console.log(`[submit-print-order] Submitting order ${orderId}`);
 
     const { data: order } = await supabase
       .from("orders")
@@ -172,24 +187,21 @@ new Worker<SubmitPrintOrderJob>(
     if (!order) throw new Error("Order not found");
 
     const pdfPath = order.storybooks.pdf_path;
-    const { data: pdfUrlData } = supabase.storage
-      .from("storybooks")
-      .getPublicUrl(pdfPath);
+    const { data: pdfUrlData } = supabase.storage.from("storybooks").getPublicUrl(pdfPath);
 
     const luluOrder = await submitPrintOrder({
       pdfUrl: pdfUrlData.publicUrl,
       shippingAddress: order.shipping_address,
-      pageCount: 24, // Square hardcover, 24pp
+      pageCount: 26, // 1 cover + 24 interior + 1 back = 26 total for Lulu
       contactEmail: order.contact_email,
     });
 
     await supabase
       .from("orders")
-      .update({
-        lulu_order_id: luluOrder.id,
-        status: "submitted_to_printer",
-      })
+      .update({ lulu_order_id: luluOrder.id, status: "submitted_to_printer" })
       .eq("id", orderId);
+
+    console.log(`[submit-print-order] Lulu order ${luluOrder.id} created`);
   },
   { connection: redisConnection }
 );

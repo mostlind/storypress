@@ -6,13 +6,13 @@ source .env.local
 
 IMAGE="ghcr.io/mostlind/storypress:latest"
 
-docker build \
+docker buildx build \
+  --platform linux/amd64/v3 \
   --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
   --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
   --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" \
-  -t "$IMAGE" .
-
-docker push "$IMAGE"
+  -t "$IMAGE" \
+  --push .
 
 echo ""
 echo "Pushed $IMAGE"

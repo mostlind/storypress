@@ -8,12 +8,7 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: .
-      args:
-        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    image: ghcr.io/mostlind/storypress:latest
     command: node server.js
     ports:
       - "3000:3000"
@@ -26,12 +21,7 @@ services:
     restart: unless-stopped
 
   worker:
-    build:
-      context: .
-      args:
-        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    image: ghcr.io/mostlind/storypress:latest
     command: node_modules/.bin/tsx jobs/worker.ts
     env_file:
       - .env.local

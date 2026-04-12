@@ -19,7 +19,12 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+
+# Install Redis
+RUN apk add --no-cache redis
+
 ENV NODE_ENV=production
+ENV REDIS_URL=redis://localhost:6379
 
 # Next.js standalone output
 COPY --from=builder /app/.next/standalone ./
@@ -35,4 +40,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
+COPY start.sh ./start.sh
+RUN chmod +x start.sh
+
 EXPOSE 3000
+
+CMD ["./start.sh"]

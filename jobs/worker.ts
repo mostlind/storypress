@@ -5,9 +5,10 @@ import { makeRedisConnection, QUEUES } from "@/lib/queue";
 const redisConnection = makeRedisConnection();
 
 import { generateStoryBeats, generateBeatImage } from "@/lib/gemini";
-import { generateStorybookPdf } from "@/lib/pdf";
+import { generateInteriorPdf, generateCoverPdf } from "@/lib/pdf";
 import { submitPrintOrder } from "@/lib/lulu";
 import { createSupabaseServiceClient } from "@/lib/supabase-server";
+import { getSubmitPrintOrderQueue } from "@/lib/queue";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
@@ -131,7 +132,7 @@ new Worker<GenerateStorybookJob>(
 new Worker<GeneratePdfJob>(
   QUEUES.GENERATE_PDF,
   async (job: Job<GeneratePdfJob>) => {
-    const { storybookId, projectId } = job.data;
+    const { storybookId, projectId, orderId } = job.data;
     console.log(`[generate-pdf] Starting for storybook ${storybookId}`);
 
     const { data: storybook } = await supabase
@@ -149,6 +150,8 @@ new Worker<GeneratePdfJob>(
     if (!storybook) throw new Error("Storybook not found");
 
     const beats: StoryBeat[] = storybook.beats ?? [];
+    const title = project?.title ?? "My Storybook";
+    const interiorPageCount = beats.length * 2; // text page + image page per beat
 
     async function getBeatImageBuffer(imagePath: string): Promise<Buffer | null> {
       const { data } = await supabase.storage.from("storybooks").download(imagePath);
@@ -156,16 +159,32 @@ new Worker<GeneratePdfJob>(
       return Buffer.from(await data.arrayBuffer());
     }
 
-    const pdfBuffer = await generateStorybookPdf(beats, getBeatImageBuffer, project?.title ?? "My Storybook");
+    // Generate interior and cover PDFs
+    console.log(`[generate-pdf] Generating interior PDF (${interiorPageCount} pages)...`);
+    const interiorBuffer = await generateInteriorPdf(beats, getBeatImageBuffer);
+
+    console.log(`[generate-pdf] Generating cover PDF...`);
+    const coverBuffer = await generateCoverPdf(title, interiorPageCount);
 
     const pdfPath = `${projectId}/${storybookId}.pdf`;
-    await supabase.storage
-      .from("storybooks")
-      .upload(pdfPath, pdfBuffer, { contentType: "application/pdf", upsert: true });
+    const coverPdfPath = `${projectId}/${storybookId}-cover.pdf`;
 
-    await supabase.from("storybooks").update({ pdf_path: pdfPath }).eq("id", storybookId);
+    await Promise.all([
+      supabase.storage.from("storybooks").upload(pdfPath, interiorBuffer, { contentType: "application/pdf", upsert: true }),
+      supabase.storage.from("storybooks").upload(coverPdfPath, coverBuffer, { contentType: "application/pdf", upsert: true }),
+    ]);
 
-    console.log(`[generate-pdf] PDF saved to ${pdfPath}`);
+    await supabase.from("storybooks").update({ pdf_path: pdfPath, cover_pdf_path: coverPdfPath }).eq("id", storybookId);
+    console.log(`[generate-pdf] Interior saved to ${pdfPath}, cover saved to ${coverPdfPath}`);
+
+    // Chain to print order submission using the orderId passed directly from the webhook
+    if (orderId) {
+      console.log(`[generate-pdf] Enqueuing print order submission for order ${orderId}`);
+      await getSubmitPrintOrderQueue().add("submit-print-order", { orderId });
+    } else {
+      console.log(`[generate-pdf] No orderId provided, skipping print submission`);
+    }
+
     return { pdfPath };
   },
   { connection: redisConnection }
@@ -186,15 +205,34 @@ new Worker<SubmitPrintOrderJob>(
 
     if (!order) throw new Error("Order not found");
 
-    const pdfPath = order.storybooks.pdf_path;
-    const { data: pdfUrlData } = supabase.storage.from("storybooks").getPublicUrl(pdfPath);
+    const { pdf_path: interiorPath, cover_pdf_path: coverPath } = order.storybooks;
+    if (!interiorPath) throw new Error("Interior PDF not found on storybook");
+    if (!coverPath) throw new Error("Cover PDF not found on storybook");
 
-    const luluOrder = await submitPrintOrder({
-      pdfUrl: pdfUrlData.publicUrl,
-      shippingAddress: order.shipping_address,
-      pageCount: 26, // 1 cover + 24 interior + 1 back = 26 total for Lulu
-      contactEmail: order.contact_email,
-    });
+    const SEVEN_DAYS = 60 * 60 * 24 * 7;
+
+    // Lulu needs publicly accessible URLs — signed for 7 days
+    const [{ data: interiorUrlData }, { data: coverUrlData }] = await Promise.all([
+      supabase.storage.from("storybooks").createSignedUrl(interiorPath, SEVEN_DAYS),
+      supabase.storage.from("storybooks").createSignedUrl(coverPath, SEVEN_DAYS),
+    ]);
+
+    if (!interiorUrlData?.signedUrl) throw new Error("Failed to generate signed URL for interior PDF");
+    if (!coverUrlData?.signedUrl) throw new Error("Failed to generate signed URL for cover PDF");
+
+    let luluOrder;
+    try {
+      luluOrder = await submitPrintOrder({
+        orderId,
+        interiorPdfUrl: interiorUrlData.signedUrl,
+        coverPdfUrl: coverUrlData.signedUrl,
+        shippingAddress: order.shipping_address,
+        contactEmail: order.contact_email,
+      });
+    } catch (err) {
+      console.error(`[submit-print-order] Lulu API call failed for order ${orderId}:`, err);
+      throw err;
+    }
 
     await supabase
       .from("orders")

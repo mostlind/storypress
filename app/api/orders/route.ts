@@ -8,6 +8,7 @@ const CreateOrderSchema = z.object({
   email: z.string().email(),
   shippingAddress: z.object({
     name: z.string().min(1),
+    phone: z.string().min(1),
     line1: z.string().min(1),
     line2: z.string().optional(),
     city: z.string().min(1),
@@ -52,6 +53,19 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (!storybook) return NextResponse.json({ error: "Storybook not found" }, { status: 404 });
+
+  // Block duplicate paid orders for the same project
+  const { data: existingOrder } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "paid")
+    .limit(1)
+    .single();
+
+  if (existingOrder) {
+    return NextResponse.json({ error: "This storybook has already been ordered." }, { status: 409 });
+  }
 
   // Create order record
   const { data: order } = await supabase

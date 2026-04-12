@@ -53,6 +53,7 @@ export interface Storybook {
 
 export interface ShippingAddress {
   name: string;
+  phone: string;
   line1: string;
   line2?: string;
   city: string;

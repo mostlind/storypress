@@ -1,12 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
 import type { ShippingAddress } from "@/types";
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+// ── Step 1: Shipping + email form ────────────────────────────────────────────
 
 export default function OrderForm({ projectId }: { projectId: string }) {
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState<ShippingAddress>({
-    name: "", line1: "", line2: "", city: "", state: "", postal_code: "", country: "US",
+    name: "", phone: "", line1: "", line2: "", city: "", state: "", postal_code: "", country: "US",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,19 +46,24 @@ export default function OrderForm({ projectId }: { projectId: string }) {
   }
 
   if (clientSecret) {
-    // In production: render <stripe Elements> payment form here using clientSecret
     return (
-      <div className="p-6 bg-green-50 rounded-xl text-green-700">
-        <p className="font-medium">Order created! Proceed to payment.</p>
-        <p className="text-sm mt-1 text-green-600">
-          (Integrate Stripe Elements here using the clientSecret)
-        </p>
-      </div>
+      <Elements
+        stripe={stripePromise}
+        options={{
+          clientSecret,
+          appearance: {
+            theme: "stripe",
+            variables: { colorPrimary: "#9333ea" },
+          },
+        }}
+      >
+        <PaymentForm clientSecret={clientSecret} />
+      </Elements>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
       <div>
@@ -64,11 +80,11 @@ export default function OrderForm({ projectId }: { projectId: string }) {
         />
       </div>
 
-      {(["name", "line1", "line2", "city", "state", "postal_code"] as const).map((field) => (
+      {(["name", "phone", "line1", "line2", "city", "state", "postal_code"] as const).map((field) => (
         <div key={field}>
           <label className="block text-sm font-medium text-gray-700 mb-1 capitalize">
             {field.replace("_", " ")}
-            {field === "line2" ? " (optional)" : ""}
+            {field === "line2" ? " (optional)" : field === "postal_code" ? " (zip)" : ""}
           </label>
           <input
             value={address[field] ?? ""}
@@ -84,7 +100,69 @@ export default function OrderForm({ projectId }: { projectId: string }) {
         disabled={loading}
         className="w-full bg-brand-600 text-white py-3 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50"
       >
-        {loading ? "Processing..." : "Place order — $49.99"}
+        {loading ? "Processing..." : "Continue to payment — $49.99"}
+      </button>
+    </form>
+  );
+}
+
+// ── Step 2: Stripe payment form ───────────────────────────────────────────────
+
+function PaymentForm({ clientSecret }: { clientSecret: string }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [succeeded, setSucceeded] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setLoading(true);
+    setError(null);
+
+    const { error: stripeError } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/orders/confirmation`,
+      },
+      redirect: "if_required",
+    });
+
+    if (stripeError) {
+      setError(stripeError.message ?? "Payment failed");
+      setLoading(false);
+      return;
+    }
+
+    setSucceeded(true);
+    setLoading(false);
+  }
+
+  if (succeeded) {
+    return (
+      <div className="p-6 bg-green-50 rounded-xl text-green-700 max-w-md">
+        <p className="font-semibold text-lg mb-1">Order placed!</p>
+        <p className="text-sm text-green-600">
+          You'll receive a confirmation email when your book ships. It usually takes 5–7 business days.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+      {error && <p className="text-red-600 text-sm">{error}</p>}
+
+      <PaymentElement />
+
+      <button
+        type="submit"
+        disabled={loading || !stripe}
+        className="w-full bg-brand-600 text-white py-3 rounded-lg font-medium hover:bg-brand-700 disabled:opacity-50"
+      >
+        {loading ? "Processing..." : "Pay $49.99"}
       </button>
     </form>
   );

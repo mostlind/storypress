@@ -52,6 +52,7 @@ export interface GenerateStorybookJob {
 export interface GeneratePdfJob {
   storybookId: string;
   projectId: string;
+  orderId: string;
 }
 
 export interface SubmitPrintOrderJob {

@@ -1,6 +1,9 @@
 import type { ShippingAddress } from "@/types";
 
-const LULU_API_BASE = "https://api.lulu.com";
+const LULU_API_BASE =
+  process.env.LULU_API_BASE ?? "https://api.sandbox.lulu.com";
+const LULU_CLIENT_KEY = process.env.LULU_CLIENT_KEY!;
+const LULU_CLIENT_SECRET = process.env.LULU_CLIENT_SECRET!;
 
 async function luluFetch(path: string, options: RequestInit = {}) {
   const token = await getLuluAccessToken();
@@ -25,15 +28,18 @@ async function getLuluAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt) {
     return cachedToken.value;
   }
-  const res = await fetch(`${LULU_API_BASE}/auth/realms/glasstree/protocol/openid-connect/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: process.env.LULU_CLIENT_KEY!,
-      client_secret: process.env.LULU_CLIENT_SECRET!,
-    }),
-  });
+  const res = await fetch(
+    `${LULU_API_BASE}/auth/realms/glasstree/protocol/openid-connect/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: LULU_CLIENT_KEY,
+        client_secret: LULU_CLIENT_SECRET,
+      }),
+    },
+  );
   const data = await res.json();
   cachedToken = {
     value: data.access_token,
@@ -43,46 +49,53 @@ async function getLuluAccessToken(): Promise<string> {
 }
 
 export interface LuluOrderOptions {
-  pdfUrl: string;
+  orderId: string;
+  interiorPdfUrl: string;
+  coverPdfUrl: string;
   shippingAddress: ShippingAddress;
-  pageCount: number;
   contactEmail: string;
 }
 
 export async function submitPrintOrder({
-  pdfUrl,
+  orderId,
+  interiorPdfUrl,
+  coverPdfUrl,
   shippingAddress,
-  pageCount,
   contactEmail,
 }: LuluOrderOptions) {
-  // Square (8x8), hardcover case wrap, premium color, 80# coated, glossy — 24pp
+  // Square (8x8), hardcover case wrap, premium color, 80# coated, glossy
   // Full list: https://developers.lulu.com/pages/pod-packages
-  const POD_PACKAGE_ID = "0800X0800FCPREMCS060UW444GXX";
+  const POD_PACKAGE_ID = "0850X0850.FC.PRE.CW.080CW444.GXX";
+
+  const payload = {
+    external_id: orderId,
+    contact_email: contactEmail,
+    line_items: [
+      {
+        title: "My Storybook",
+        quantity: 1,
+        printable_normalization: {
+          cover: { source_url: coverPdfUrl },
+          interior: { source_url: interiorPdfUrl },
+          pod_package_id: POD_PACKAGE_ID,
+        },
+      },
+    ],
+    shipping_address: {
+      name: shippingAddress.name,
+      phone_number: shippingAddress.phone,
+      street1: shippingAddress.line1,
+      street2: shippingAddress.line2 ?? "",
+      city: shippingAddress.city,
+      state_code: shippingAddress.state,
+      postcode: shippingAddress.postal_code,
+      country_code: shippingAddress.country,
+    },
+    shipping_level: "MAIL",
+  };
 
   return luluFetch("/print-jobs/", {
     method: "POST",
-    body: JSON.stringify({
-      contact_email: contactEmail,
-      line_items: [
-        {
-          title: "My Storybook",
-          cover: pdfUrl, // Lulu requires separate cover PDF for some formats
-          interior: pdfUrl,
-          pod_package_id: POD_PACKAGE_ID,
-          quantity: 1,
-          page_count: pageCount,
-        },
-      ],
-      shipping_address: {
-        name: shippingAddress.name,
-        street1: shippingAddress.line1,
-        street2: shippingAddress.line2 ?? "",
-        city: shippingAddress.city,
-        state_code: shippingAddress.state,
-        postcode: shippingAddress.postal_code,
-        country_code: shippingAddress.country,
-      },
-      shipping_option: "MAIL",
-    }),
+    body: JSON.stringify(payload),
   });
 }

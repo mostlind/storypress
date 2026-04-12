@@ -1,4 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
+import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 const MODEL = "gemini-3.1-flash-image-preview";
@@ -67,6 +69,21 @@ export async function chat({
 
 // ─── Phase 1: Generate story beats (text only) ───────────────────────────────
 
+const storyBeatsSchema = z.object({
+  beat_one:    z.string().describe("Page 1 story beat — vivid prose, 3-5 sentences."),
+  beat_two:    z.string().describe("Page 2 story beat — vivid prose, 3-5 sentences."),
+  beat_three:  z.string().describe("Page 3 story beat — vivid prose, 3-5 sentences."),
+  beat_four:   z.string().describe("Page 4 story beat — vivid prose, 3-5 sentences."),
+  beat_five:   z.string().describe("Page 5 story beat — vivid prose, 3-5 sentences."),
+  beat_six:    z.string().describe("Page 6 story beat — vivid prose, 3-5 sentences."),
+  beat_seven:  z.string().describe("Page 7 story beat — vivid prose, 3-5 sentences."),
+  beat_eight:  z.string().describe("Page 8 story beat — vivid prose, 3-5 sentences."),
+  beat_nine:   z.string().describe("Page 9 story beat — vivid prose, 3-5 sentences."),
+  beat_ten:    z.string().describe("Page 10 story beat — vivid prose, 3-5 sentences."),
+  beat_eleven: z.string().describe("Page 11 story beat — vivid prose, 3-5 sentences."),
+  beat_twelve: z.string().describe("Page 12 story beat — vivid prose, 3-5 sentences."),
+});
+
 export async function generateStoryBeats({
   conversation,
   photoBuffers,
@@ -95,56 +112,41 @@ ${transcript}
 
 ${photoBuffers.length > 0 ? `I'm also providing ${photoBuffers.length} photos from the trip for context.` : ""}
 
-Write exactly 12 story beats — short, vivid prose passages of 3-5 sentences each. Together they should tell the full arc of the story: arrival, experiences, people, moments, feelings, and reflection. Each beat will occupy one page of a printed book.
-
-Respond with a JSON array of exactly 12 strings, nothing else:
-["Beat 1 text...", "Beat 2 text...", ..., "Beat 12 text..."]`,
+Write 12 story beats — short, vivid prose passages of 3-5 sentences each. Together they should tell the full arc of the story: arrival, experiences, people, moments, feelings, and reflection. Each beat will occupy one page of a printed book.`,
     },
     ...photoParts,
   ];
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-  });
+  const MAX_ATTEMPTS = 3;
+  let lastError: Error | null = null;
 
-  const candidate = response.candidates?.[0];
-  if (!candidate)
-    throw new Error(
-      `Gemini returned no candidates. Response: ${JSON.stringify(response)}`,
-    );
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseJsonSchema: zodToJsonSchema(storyBeatsSchema),
+        },
+      });
 
-  const finishReason = candidate.finishReason;
-  if (finishReason && finishReason !== "STOP") {
-    throw new Error(
-      `Gemini stopped with reason: ${finishReason}. Response: ${JSON.stringify(candidate)}`,
-    );
+      const data = storyBeatsSchema.parse(JSON.parse(response.text!));
+      return [
+        data.beat_one, data.beat_two, data.beat_three, data.beat_four,
+        data.beat_five, data.beat_six, data.beat_seven, data.beat_eight,
+        data.beat_nine, data.beat_ten, data.beat_eleven, data.beat_twelve,
+      ];
+    } catch (err) {
+      lastError = err as Error;
+      console.warn(`[generateStoryBeats] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, lastError.message);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
   }
 
-  const parts = candidate.content?.parts;
-  if (!parts?.length)
-    throw new Error(
-      `Gemini returned empty parts. Candidate: ${JSON.stringify(candidate)}`,
-    );
-
-  const text = parts
-    .filter((p: any) => p.text)
-    .map((p: any) => p.text)
-    .join("");
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch)
-    throw new Error(
-      `Gemini did not return a valid beats array. Got: ${text.slice(0, 500)}`,
-    );
-
-  const beats: string[] = JSON.parse(jsonMatch[0]);
-
-  // Enforce exactly 12
-  if (beats.length < 12) {
-    while (beats.length < 12) beats.push("...");
-  }
-  return beats.slice(0, 12);
+  throw lastError!;
 }
 
 // ─── Phase 2: Generate image for a single beat ───────────────────────────────
@@ -192,24 +194,37 @@ ${hasPrevious ? `The illustrations generated for the previous ${previousImageBuf
     ...prevParts,
   ];
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-  });
+  const MAX_ATTEMPTS = 3;
+  let lastError: Error | null = null;
 
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts?.length) {
-    console.warn(
-      `[generateBeatImage] No parts in response for beat ${beatIndex}. Skipping.`,
-    );
-    return null;
-  }
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+      });
 
-  for (const part of parts) {
-    if ((part as any).inlineData) {
-      return Buffer.from((part as any).inlineData.data, "base64");
+      const parts = response.candidates?.[0]?.content?.parts;
+      if (!parts?.length) {
+        throw new Error(`No parts in response for beat ${beatIndex}`);
+      }
+
+      for (const part of parts) {
+        if ((part as any).inlineData) {
+          return Buffer.from((part as any).inlineData.data, "base64");
+        }
+      }
+
+      throw new Error(`No image data in response for beat ${beatIndex}`);
+    } catch (err) {
+      lastError = err as Error;
+      console.warn(`[generateBeatImage] Attempt ${attempt}/${MAX_ATTEMPTS} for beat ${beatIndex} failed:`, lastError.message);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
     }
   }
 
+  console.warn(`[generateBeatImage] All attempts failed for beat ${beatIndex}, skipping.`);
   return null;
 }

@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       await getGeneratePdfQueue().add("generate-pdf", {
         storybookId: order.storybook_id,
         projectId: order.project_id,
+        orderId,
       });
       // Print submission is triggered by the PDF worker after PDF is ready
     }

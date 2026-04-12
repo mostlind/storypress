@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import Image from "next/image";
@@ -14,7 +14,15 @@ interface Message {
 const GREETING = "Hey! Tell me about the trip or event you want to turn into a storybook. What happened, and what made it special?";
 const RETURNING_GREETING = "Welcome back! What would you like to add or change about your story?";
 
-export default function CreatePage() {
+export default function CreatePageWrapper() {
+  return (
+    <Suspense>
+      <CreatePage />
+    </Suspense>
+  );
+}
+
+function CreatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createSupabaseBrowserClient();

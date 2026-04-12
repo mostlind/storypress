@@ -1,11 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import Link from "next/link";
 
-export default function SignupPage() {
+export default function SignupPageWrapper() {
+  return (
+    <Suspense>
+      <SignupPage />
+    </Suspense>
+  );
+}
+
+function SignupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";

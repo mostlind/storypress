@@ -2,8 +2,10 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 const MODEL = "gemini-3.1-flash-image-preview";
+function getAi() {
+  return new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
+}
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +48,7 @@ export async function chat({
     });
   }
 
-  const response = await ai.models.generateContent({
+  const response = await getAi().models.generateContent({
     model: MODEL,
     contents: prompt,
   });
@@ -122,7 +124,7 @@ Write 12 story beats — short, vivid prose passages of 3-5 sentences each. Toge
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const response = await ai.models.generateContent({
+      const response = await getAi().models.generateContent({
         model: MODEL,
         contents: prompt,
         config: {
@@ -199,7 +201,7 @@ ${hasPrevious ? `The illustrations generated for the previous ${previousImageBuf
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const response = await ai.models.generateContent({
+      const response = await getAi().models.generateContent({
         model: MODEL,
         contents: prompt,
       });

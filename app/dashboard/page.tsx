@@ -67,6 +67,7 @@ function StatusBadge({ status }: { status: Project["status"] }) {
     ordered: "bg-blue-100 text-blue-700",
     printing: "bg-purple-100 text-purple-700",
     shipped: "bg-brand-100 text-brand-700",
+    failed: "bg-red-100 text-red-700",
   };
   return (
     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${styles[status]}`}>

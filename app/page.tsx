@@ -10,12 +10,6 @@ export default function LandingPage() {
           <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
             Sign in
           </Link>
-          <Link
-            href="/create"
-            className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700"
-          >
-            Get started
-          </Link>
         </div>
       </nav>
 

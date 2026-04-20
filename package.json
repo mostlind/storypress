@@ -10,7 +10,10 @@
     "worker": "tsx --env-file=.env.local jobs/worker.ts",
     "enqueue:storybook": "tsx --env-file=.env.local scripts/enqueue-storybook-job.ts",
     "enqueue:pdf": "tsx --env-file=.env.local scripts/enqueue-pdf-job.ts",
-    "enqueue:print": "tsx --env-file=.env.local scripts/enqueue-print-job.ts"
+    "enqueue:print": "tsx --env-file=.env.local scripts/enqueue-print-job.ts",
+    "push-image:local": "bash scripts/build.sh local",
+    "push-image:dev": "bash scripts/build.sh dev",
+    "push-image:prod": "bash scripts/build.sh prod"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

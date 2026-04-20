@@ -8,6 +8,7 @@ import {
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 import type { ShippingAddress } from "@/types";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -111,9 +112,13 @@ export default function OrderForm({ projectId }: { projectId: string }) {
 function PaymentForm({ clientSecret }: { clientSecret: string }) {
   const stripe = useStripe();
   const elements = useElements();
+  const supabase = createSupabaseBrowserClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+  const [saveEmail, setSaveEmail] = useState("");
+  const [saveSent, setSaveSent] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -140,13 +145,56 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
     setLoading(false);
   }
 
+  async function handleSaveAccount(e: React.FormEvent) {
+    e.preventDefault();
+    setSaveError(null);
+    const { error } = await supabase.auth.updateUser({ email: saveEmail });
+    if (error) {
+      setSaveError(error.message);
+    } else {
+      setSaveSent(true);
+    }
+  }
+
   if (succeeded) {
     return (
-      <div className="p-6 bg-green-50 rounded-xl text-green-700 max-w-md">
-        <p className="font-semibold text-lg mb-1">Order placed!</p>
-        <p className="text-sm text-green-600">
-          You'll receive a confirmation email when your book ships. It usually takes 5–7 business days.
-        </p>
+      <div className="space-y-6 max-w-md">
+        <div className="p-6 bg-green-50 rounded-xl text-green-700">
+          <p className="font-semibold text-lg mb-1">Order placed!</p>
+          <p className="text-sm text-green-600">
+            You'll receive a confirmation email when your book ships. It usually takes 5–7 business days.
+          </p>
+        </div>
+
+        {!saveSent ? (
+          <div className="p-6 border border-gray-200 rounded-xl">
+            <p className="font-medium mb-1">Save your storybook</p>
+            <p className="text-sm text-gray-500 mb-4">
+              Enter your email to create an account and access your storybook anytime.
+            </p>
+            <form onSubmit={handleSaveAccount} className="space-y-3">
+              {saveError && <p className="text-red-600 text-sm">{saveError}</p>}
+              <input
+                type="email"
+                value={saveEmail}
+                onChange={(e) => setSaveEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="submit"
+                className="w-full bg-brand-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-brand-700"
+              >
+                Save my account
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="p-6 border border-gray-200 rounded-xl text-sm text-gray-600">
+            Check your email — we sent a link to confirm your account.
+          </div>
+        )}
       </div>
     );
   }

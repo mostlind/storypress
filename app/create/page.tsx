@@ -79,8 +79,12 @@ function CreatePage() {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/signup?next=/create"); return; }
+    let { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      const { data } = await supabase.auth.signInAnonymously();
+      user = data.user;
+    }
+    if (!user) { setError("Failed to start session"); return; }
 
     setUploading(true);
     setError(null);
@@ -116,8 +120,12 @@ function CreatePage() {
     if (!input.trim() && !pendingPhotoIds.length) return;
     if (thinking) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/signup?next=/create"); return; }
+    let { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      const { data } = await supabase.auth.signInAnonymously();
+      user = data.user;
+    }
+    if (!user) { setError("Failed to start session"); return; }
 
     setMessages((prev) => [...prev, { role: "user", text: input, photoUrls: pendingPreviewUrls }]);
     const photoIdsToSend = [...pendingPhotoIds];
@@ -261,22 +269,6 @@ function CreatePage() {
       {/* Input */}
       <div className="px-6 py-4 border-t border-gray-100">
         <form onSubmit={handleSend} className="flex items-end gap-3">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 disabled:opacity-40 transition-colors"
-            title="Add photos"
-          >
-            {uploading ? (
-              <span className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            )}
-          </button>
-
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -306,9 +298,19 @@ function CreatePage() {
           onChange={handlePhotoSelect}
         />
 
-        <p className="text-xs text-gray-400 text-center mt-2">
-          Press Enter to send · Shift+Enter for new line · 📎 to attach photos
-        </p>
+        <div className="flex justify-center mt-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            {uploading ? "Uploading..." : "Upload photos"}
+          </button>
+        </div>
       </div>
     </main>
   );

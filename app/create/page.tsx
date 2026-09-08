@@ -150,12 +150,7 @@ function CreatePage() {
     setMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
 
     if (data.isReady) {
-      await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: data.projectId }),
-      });
-      router.push(`/projects/${data.projectId}`);
+      router.push(`/projects/${data.projectId}/characters`);
     }
   }
 

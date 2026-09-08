@@ -1,9 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect, notFound } from "next/navigation";
-import Image from "next/image";
 import OrderForm from "@/components/OrderForm";
 import GeneratingView from "@/components/GeneratingView";
 import RegenerateButton from "@/components/RegenerateButton";
+import StorybookBeats from "@/components/StorybookBeats";
 import type { StoryBeat } from "@/types";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -76,31 +76,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {beats.length === 0 && <RegenerateButton projectId={project.id} />}
 
-      {/* Beat spreads: text left, image right */}
-      <div className="space-y-6">
-        {beats.map((beat, i) => {
-          const signedUrl = beat.image_path ? signedUrlMap.get(beat.image_path) : null;
-          return (
-            <div key={i} className="grid grid-cols-2 rounded-xl overflow-hidden border border-gray-200 aspect-[2/1]">
-              {/* Left: text page */}
-              <div className="bg-[#faf8f5] flex flex-col justify-center px-8 py-8 border-r border-gray-200">
-                <p className="text-xs text-gray-400 mb-4 font-mono">{i + 1}</p>
-                <p className="text-gray-800 leading-relaxed text-sm">{beat.text}</p>
-              </div>
-              {/* Right: image page */}
-              <div className="relative bg-gray-900">
-                {signedUrl ? (
-                  <Image src={signedUrl} alt={`Page ${i + 1}`} fill className="object-cover" />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-6 h-6 border-2 border-gray-600 border-t-gray-300 rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <StorybookBeats
+        projectId={project.id}
+        initialBeats={beats.map((beat) => ({
+          ...beat,
+          signedUrl: beat.image_path ? (signedUrlMap.get(beat.image_path) ?? null) : null,
+        }))}
+      />
 
       {project.status === "ready" && (
         <div className="border-t border-gray-200 mt-12 pt-10">

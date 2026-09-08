@@ -118,6 +118,7 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
   const [succeeded, setSucceeded] = useState(false);
   const [saveEmail, setSaveEmail] = useState("");
   const [saveSent, setSaveSent] = useState(false);
+  const [saveMode, setSaveMode] = useState<"create" | "login">("create");
   const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -150,8 +151,20 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
     setSaveError(null);
     const { error } = await supabase.auth.updateUser({ email: saveEmail });
     if (error) {
-      setSaveError(error.message);
+      if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already been registered") || error.code === "email_exists") {
+        // Email already has an account — send a magic link instead
+        const { error: otpError } = await supabase.auth.signInWithOtp({ email: saveEmail });
+        if (otpError) {
+          setSaveError(otpError.message);
+        } else {
+          setSaveMode("login");
+          setSaveSent(true);
+        }
+      } else {
+        setSaveError(error.message);
+      }
     } else {
+      setSaveMode("create");
       setSaveSent(true);
     }
   }
@@ -192,7 +205,9 @@ function PaymentForm({ clientSecret }: { clientSecret: string }) {
           </div>
         ) : (
           <div className="p-6 border border-gray-200 rounded-xl text-sm text-gray-600">
-            Check your email — we sent a link to confirm your account.
+            {saveMode === "login"
+              ? "That email already has an account — check your inbox for a sign-in link."
+              : "Check your email — we sent a link to confirm your account."}
           </div>
         )}
       </div>

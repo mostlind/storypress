@@ -153,33 +153,75 @@ Write 12 story beats — short, vivid prose passages of 3-5 sentences each. Toge
 
 // ─── Phase 2: Generate image for a single beat ───────────────────────────────
 
+// How many already-generated pages to attach as style references. Every
+// attached image costs tokens and latency, and by the last page the book has
+// eleven of them, so we send a representative few rather than all of them.
+const MAX_STYLE_REFERENCES = 4;
+
+function toInlineImage(buf: Buffer) {
+  return {
+    inlineData: {
+      mimeType: "image/jpeg" as const,
+      data: buf.toString("base64"),
+    },
+  };
+}
+
+// Keeps the first page — it establishes the look of the book — plus the most
+// recent pages, which is what a new page most needs to match. Safe to apply to
+// an already-selected list. Exported so callers that must fetch the images over
+// the network can fetch only the ones that will actually be used.
+export function selectStyleReferences<T>(items: T[]): T[] {
+  if (items.length <= MAX_STYLE_REFERENCES) return items;
+  return [items[0], ...items.slice(-(MAX_STYLE_REFERENCES - 1))];
+}
+
 export async function generateBeatImage({
   beatText,
   beatIndex,
   referenceBuffers,
   previousImageBuffers,
+  characters,
+  characterPortraits,
+  correction,
 }: {
   beatText: string;
   beatIndex: number;
   referenceBuffers: Buffer[]; // user's uploaded photos
   previousImageBuffers: Buffer[]; // already-generated beat images for consistency
+  characters?: Array<{ name: string; description: string }>;
+  characterPortraits?: Array<{ name: string; buffer: Buffer }>; // generated cast portraits
+  correction?: string; // user's correction for a specific image
 }): Promise<Buffer | null> {
-  const refParts = referenceBuffers.slice(0, 3).map((buf) => ({
-    inlineData: {
-      mimeType: "image/jpeg" as const,
-      data: buf.toString("base64"),
-    },
-  }));
+  const refParts = referenceBuffers.slice(0, 3).map(toInlineImage);
 
-  const prevParts = previousImageBuffers.map((buf) => ({
-    inlineData: {
-      mimeType: "image/jpeg" as const,
-      data: buf.toString("base64"),
-    },
-  }));
+  const styleBuffers = selectStyleReferences(previousImageBuffers);
+  const prevParts = styleBuffers.map(toInlineImage);
 
-  const hasPrevious = previousImageBuffers.length > 0;
+  // Each portrait is labelled with its own text part immediately before the
+  // image, so the model can tell which face belongs to which name.
+  const portraits = characterPortraits ?? [];
+  const portraitParts = portraits.flatMap((p) => [
+    { text: `Character reference portrait — this is ${p.name}. Match this face, hair, and build wherever ${p.name} appears.` },
+    toInlineImage(p.buffer),
+  ]);
+
+  const hasPrevious = styleBuffers.length > 0;
   const hasReference = referenceBuffers.length > 0;
+  const hasCharacters = characters && characters.length > 0;
+  const hasPortraits = portraits.length > 0;
+
+  const castSection = hasCharacters
+    ? `\n\nCast of characters — illustrate them exactly as described and keep couples/relationships accurate:\n${characters!.map((c) => `- ${c.name}: ${c.description}`).join("\n")}`
+    : "";
+
+  const portraitSection = hasPortraits
+    ? `\n\nLabelled reference portraits are attached for ${portraits.map((p) => p.name).join(", ")}. These portraits define what each person looks like — keep their faces consistent with them.`
+    : "";
+
+  const correctionSection = correction
+    ? `\n\nIMPORTANT CORRECTION from the user: ${correction}\nMake sure this correction is reflected in the image.`
+    : "";
 
   const prompt = [
     {
@@ -187,12 +229,14 @@ export async function generateBeatImage({
 
 The story beat for this page:
 "${beatText}"
+${castSection}${portraitSection}${correctionSection}
 
 ${hasReference ? "Reference photos are provided showing the real people, places, and objects in this story — use them to inform the characters and settings, but render everything in the illustrated style, not photorealistic." : ""}
 
-${hasPrevious ? `The illustrations generated for the previous ${previousImageBuffers.length} page(s) are also attached. You MUST maintain strict visual consistency: same character appearances, same art style, same color palette, same line quality across all pages.` : "This is the first illustration — establish the art style, color palette, and character designs that will be used consistently throughout the book."}`,
+${hasPrevious ? `Illustrations from ${styleBuffers.length} other page(s) of this same book are also attached. You MUST maintain strict visual consistency: same character appearances, same art style, same color palette, same line quality across all pages.` : "This is the first illustration — establish the art style, color palette, and character designs that will be used consistently throughout the book."}`,
     },
     ...refParts,
+    ...portraitParts,
     ...prevParts,
   ];
 
@@ -228,5 +272,52 @@ ${hasPrevious ? `The illustrations generated for the previous ${previousImageBuf
   }
 
   console.warn(`[generateBeatImage] All attempts failed for beat ${beatIndex}, skipping.`);
+  return null;
+}
+
+// ─── Generate a storybook-style character portrait ───────────────────────────
+
+export async function generateCharacterPortrait(name: string, description: string): Promise<Buffer | null> {
+  const prompt = [
+    {
+      text: `Create a storybook-style character portrait illustration.
+
+Character: ${name}
+Description: ${description}
+
+The portrait should be a warm, expressive illustration in a classic picture book style — painterly, soft edges, rich colors. Show the character from the shoulders up or waist up. The style should feel like a hand-painted children's book illustration — inviting and full of personality. No text, no labels, no background elements that distract. Simple, warm background color. The image is square (1:1).`,
+    },
+  ];
+
+  const MAX_ATTEMPTS = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await getAi().models.generateContent({
+        model: MODEL,
+        contents: prompt,
+      });
+
+      const parts = response.candidates?.[0]?.content?.parts;
+      if (!parts?.length) throw new Error("No parts in response");
+
+      for (const part of parts) {
+        if ((part as any).inlineData) {
+          return Buffer.from((part as any).inlineData.data, "base64");
+        }
+      }
+
+      throw new Error("No image data in response");
+    } catch (err) {
+      lastError = err as Error;
+      console.warn(`[generateCharacterPortrait] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, lastError.message);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
+  }
+
+  console.warn("[generateCharacterPortrait] All attempts failed.");
   return null;
 }

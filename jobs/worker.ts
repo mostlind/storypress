@@ -79,6 +79,24 @@ new Worker<GenerateStorybookJob>(
 
       if (upsertError || !storybook) throw new Error(`Failed to save storybook: ${upsertError?.message}`);
 
+      // Fetch characters for this project, plus any portraits the user
+      // generated — those anchor what each person looks like on every page.
+      const { data: characterRows } = await supabase
+        .from("characters")
+        .select("name, description, portrait_path")
+        .eq("project_id", projectId)
+        .order("display_order");
+      const characterRecords = characterRows ?? [];
+      const characters = characterRecords.map(({ name, description }) => ({ name, description }));
+
+      const characterPortraits: Array<{ name: string; buffer: Buffer }> = [];
+      for (const character of characterRecords) {
+        if (!character.portrait_path) continue;
+        const { data } = await supabase.storage.from("portraits").download(character.portrait_path);
+        if (data) characterPortraits.push({ name: character.name, buffer: Buffer.from(await data.arrayBuffer()) });
+      }
+      console.log(`[generate-storybook] ${characters.length} characters loaded (${characterPortraits.length} with portraits)`);
+
       // ── Phase 2: Generate image for each beat ────────────────────────────
       const beats: StoryBeat[] = [...initialBeats];
       const generatedImageBuffers: Buffer[] = []; // accumulate for consistency
@@ -91,6 +109,8 @@ new Worker<GenerateStorybookJob>(
           beatIndex: i,
           referenceBuffers: photoBuffers,
           previousImageBuffers: generatedImageBuffers,
+          characters,
+          characterPortraits,
         });
 
         if (imageBuffer) {

@@ -41,6 +41,15 @@ export interface StoryBeat {
   image_path: string | null; // storage path in "storybooks" bucket
 }
 
+export interface Character {
+  id?: string;
+  project_id?: string;
+  name: string;
+  description: string;
+  portrait_path?: string | null;
+  display_order?: number;
+}
+
 export interface Storybook {
   id: string;
   project_id: string;

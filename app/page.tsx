@@ -27,7 +27,7 @@ const STEPS = [
   {
     step: "4",
     title: "Hold it in your hands",
-    desc: "We print it as an 8×8\" premium-color hardcover and ship it anywhere in the world.",
+    desc: 'We print it as an 8×8" premium-color hardcover and ship it anywhere in the world.',
   },
 ];
 
@@ -69,7 +69,7 @@ const FAQS = [
   },
   {
     q: "What if I don't like an illustration?",
-    a: "Regenerate it. You can also leave a note — \"she had short hair that summer\", \"the boat was red\" — and we'll repaint the page with the correction.",
+    a: 'Regenerate it. You can also leave a note — "she had short hair that summer", "the boat was red" — and we\'ll repaint the page with the correction.',
   },
   {
     q: "Do I need good photos?",
@@ -97,7 +97,7 @@ const OCCASIONS = [
 ];
 
 const INCLUDED = [
-  "8×8\" square hardcover, premium color interior",
+  '8×8" square hardcover, premium color interior',
   "12 original full-bleed illustrations",
   "A custom story written from your interview",
   "Character portraits for everyone in the book",
@@ -118,21 +118,36 @@ export default function LandingPage() {
             </span>
           </Link>
           <div className="hidden items-center gap-8 md:flex">
-            <a href="#how" className="text-sm text-stone-600 hover:text-stone-900">
+            <a
+              href="#how"
+              className="text-sm text-stone-600 hover:text-stone-900"
+            >
               How it works
             </a>
-            <a href="#craft" className="text-sm text-stone-600 hover:text-stone-900">
+            <a
+              href="#craft"
+              className="text-sm text-stone-600 hover:text-stone-900"
+            >
               The craft
             </a>
-            <a href="#pricing" className="text-sm text-stone-600 hover:text-stone-900">
+            <a
+              href="#pricing"
+              className="text-sm text-stone-600 hover:text-stone-900"
+            >
               Pricing
             </a>
-            <a href="#faq" className="text-sm text-stone-600 hover:text-stone-900">
+            <a
+              href="#faq"
+              className="text-sm text-stone-600 hover:text-stone-900"
+            >
               FAQ
             </a>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="text-sm text-stone-600 hover:text-stone-900">
+            <Link
+              href="/login"
+              className="text-sm text-stone-600 hover:text-stone-900"
+            >
               Sign in
             </Link>
             <Link
@@ -211,7 +226,10 @@ export default function LandingPage() {
         </section>
 
         {/* How it works */}
-        <section id="how" className="mx-auto w-full max-w-6xl scroll-mt-24 px-6 py-24">
+        <section
+          id="how"
+          className="mx-auto w-full max-w-6xl scroll-mt-24 px-6 py-24"
+        >
           <SectionHeading
             eyebrow="How it works"
             title="Four steps from memory to mailbox"
@@ -226,15 +244,22 @@ export default function LandingPage() {
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-50 text-lg font-semibold text-brand-700">
                   {step}
                 </span>
-                <h3 className="mt-5 text-lg font-semibold text-stone-900">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-stone-600">{desc}</p>
+                <h3 className="mt-5 text-lg font-semibold text-stone-900">
+                  {title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                  {desc}
+                </p>
               </li>
             ))}
           </ol>
         </section>
 
         {/* The craft */}
-        <section id="craft" className="scroll-mt-24 border-y border-stone-200/70 bg-white">
+        <section
+          id="craft"
+          className="scroll-mt-24 border-y border-stone-200/70 bg-white"
+        >
           <div className="mx-auto w-full max-w-6xl px-6 py-24">
             <SectionHeading
               eyebrow="The craft"
@@ -247,8 +272,12 @@ export default function LandingPage() {
                   key={title}
                   className="rounded-3xl border border-stone-200 bg-[#fdfaf6] p-7"
                 >
-                  <h3 className="text-base font-semibold text-stone-900">{title}</h3>
-                  <p className="mt-3 text-sm leading-relaxed text-stone-600">{desc}</p>
+                  <h3 className="text-base font-semibold text-stone-900">
+                    {title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                    {desc}
+                  </p>
                 </div>
               ))}
             </div>
@@ -256,7 +285,10 @@ export default function LandingPage() {
         </section>
 
         {/* Pricing */}
-        <section id="pricing" className="mx-auto w-full max-w-6xl scroll-mt-24 px-6 py-24">
+        <section
+          id="pricing"
+          className="mx-auto w-full max-w-6xl scroll-mt-24 px-6 py-24"
+        >
           <SectionHeading
             eyebrow="Pricing"
             title="One book, one price"
@@ -297,7 +329,10 @@ export default function LandingPage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="scroll-mt-24 border-t border-stone-200/70 bg-white">
+        <section
+          id="faq"
+          className="scroll-mt-24 border-t border-stone-200/70 bg-white"
+        >
           <div className="mx-auto w-full max-w-3xl px-6 py-24">
             <SectionHeading eyebrow="FAQ" title="Questions, answered" />
             <div className="mt-12 divide-y divide-stone-200 border-y border-stone-200">
@@ -309,7 +344,9 @@ export default function LandingPage() {
                       +
                     </span>
                   </summary>
-                  <p className="mt-3 text-sm leading-relaxed text-stone-600">{a}</p>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                    {a}
+                  </p>
                 </details>
               ))}
             </div>
@@ -390,7 +427,9 @@ function SectionHeading({
         {title}
       </h2>
       {subtitle ? (
-        <p className="mt-4 text-lg leading-relaxed text-stone-600">{subtitle}</p>
+        <p className="mt-4 text-lg leading-relaxed text-stone-600">
+          {subtitle}
+        </p>
       ) : null}
     </div>
   );

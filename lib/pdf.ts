@@ -24,15 +24,15 @@ async function createDoc() {
 
 // Lulu 8.5x8.5 square with 0.125" bleed on all sides.
 // Matches template/.../Interior Templates/Single Pages/PDF (630x630pt).
-const TRIM  = 8.5 * 72;       // 612pt — trim size
+const TRIM = 8.5 * 72; // 612pt — trim size
 const PAGE_W = (8.5 + 0.125 * 2) * 72; // 630pt — trim + left/right bleed
 const PAGE_H = (8.5 + 0.125 * 2) * 72; // 630pt — trim + top/bottom bleed
-const BLEED = 0.125 * 72;     // 9pt
+const BLEED = 0.125 * 72; // 9pt
 const MARGIN = (0.125 + 0.75) * 72; // 63pt (bleed + 0.75" safe area)
 
 const CREAM = rgb(0.98, 0.96, 0.93);
-const INK   = rgb(0.12, 0.10, 0.09);
-const MUTED = rgb(0.55, 0.50, 0.46);
+const INK = rgb(0.12, 0.1, 0.09);
+const MUTED = rgb(0.55, 0.5, 0.46);
 
 // Lulu hardcover case wrap spine formula: (0.0025 * interiorPageCount) + 0.2 inches
 export function calcSpineWidth(interiorPageCount: number): number {
@@ -52,7 +52,13 @@ export async function generateInteriorPdf(
 
     // Left page — text
     const textPage = doc.addPage([PAGE_W, PAGE_H]);
-    textPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: CREAM });
+    textPage.drawRectangle({
+      x: 0,
+      y: 0,
+      width: PAGE_W,
+      height: PAGE_H,
+      color: CREAM,
+    });
 
     textPage.drawText(String(i + 1), {
       x: MARGIN,
@@ -62,7 +68,13 @@ export async function generateInteriorPdf(
       color: MUTED,
     });
 
-    textPage.drawRectangle({ x: MARGIN, y: PAGE_H - MARGIN, width: PAGE_W - MARGIN * 2, height: 0.75, color: MUTED });
+    textPage.drawRectangle({
+      x: MARGIN,
+      y: PAGE_H - MARGIN,
+      width: PAGE_W - MARGIN * 2,
+      height: 0.75,
+      color: MUTED,
+    });
 
     textPage.drawText(beat.text, {
       x: MARGIN,
@@ -74,11 +86,23 @@ export async function generateInteriorPdf(
       lineHeight: 22,
     });
 
-    textPage.drawRectangle({ x: MARGIN, y: MARGIN - 12, width: PAGE_W - MARGIN * 2, height: 0.75, color: MUTED });
+    textPage.drawRectangle({
+      x: MARGIN,
+      y: MARGIN - 12,
+      width: PAGE_W - MARGIN * 2,
+      height: 0.75,
+      color: MUTED,
+    });
 
     // Right page — full-bleed image
     const imgPage = doc.addPage([PAGE_W, PAGE_H]);
-    imgPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.15, 0.13, 0.12) });
+    imgPage.drawRectangle({
+      x: 0,
+      y: 0,
+      width: PAGE_W,
+      height: PAGE_H,
+      color: rgb(0.15, 0.13, 0.12),
+    });
 
     if (beat.image_path) {
       try {
@@ -109,9 +133,9 @@ export async function generateInteriorPdf(
 // ── Cover PDF (single wide page: back | spine | front, with full case-wrap margins) ──
 
 // Hardcover case wrap requires bleed (0.125") + wrap/hinge allowance (0.75") on all sides
-const WRAP  = 0.75 * 72;           // 54pt — wraps around the physical boards
-const EXTRA = BLEED + WRAP;        // 63pt — total margin outside trim on each edge
-const SAFE  = EXTRA + 0.25 * 72;  // safe zone for text/design on front/back panels
+const WRAP = 0.75 * 72; // 54pt — wraps around the physical boards
+const EXTRA = BLEED + WRAP; // 63pt — total margin outside trim on each edge
+const SAFE = EXTRA + 0.25 * 72; // safe zone for text/design on front/back panels
 
 export async function generateCoverPdf(
   title: string,
@@ -130,7 +154,13 @@ export async function generateCoverPdf(
   const page = doc.addPage([coverW, coverH]);
 
   // Full background
-  page.drawRectangle({ x: 0, y: 0, width: coverW, height: coverH, color: CREAM });
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: coverW,
+    height: coverH,
+    color: CREAM,
+  });
 
   // ── Front cover (right panel) ─────────────────────────────────────────────
   const frontX = EXTRA + TRIM + spineW; // x origin of front cover panel
@@ -174,7 +204,13 @@ export async function generateCoverPdf(
   // ── Spine ─────────────────────────────────────────────────────────────────
   const spineX = EXTRA + TRIM;
 
-  page.drawRectangle({ x: spineX, y: 0, width: spineW, height: coverH, color: INK });
+  page.drawRectangle({
+    x: spineX,
+    y: 0,
+    width: spineW,
+    height: coverH,
+    color: INK,
+  });
 
   // Spine title — rotated 90°, centred
   const spineFontSize = Math.min(11, spineW * 0.6);

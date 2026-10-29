@@ -35,7 +35,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" className={lora.variable}>
       <body className="min-h-screen bg-white text-gray-900 antialiased">

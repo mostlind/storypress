@@ -63,7 +63,7 @@ export async function submitPrintOrder({
   shippingAddress,
   contactEmail,
 }: LuluOrderOptions) {
-  // Square (8x8), hardcover case wrap, premium color, 80# coated, glossy
+  // Square (8.5x8.5), hardcover case wrap, premium color, 80# coated, glossy
   // Full list: https://developers.lulu.com/pages/pod-packages
   const POD_PACKAGE_ID = "0850X0850.FC.PRE.CW.080CW444.GXX";
 

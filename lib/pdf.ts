@@ -22,9 +22,10 @@ async function createDoc() {
   return { doc, serif, serifBold };
 }
 
-// Lulu 8.5x8.5 square with 0.125" bleed on all sides
+// Lulu 8.5x8.5 square with 0.125" bleed on all sides.
+// Matches template/.../Interior Templates/Single Pages/PDF (630x630pt).
 const TRIM  = 8.5 * 72;       // 612pt — trim size
-const PAGE_W = (8.5 + 0.125) * 72;  // 621pt — trim + bleed (Lulu adds bleed on binding edge separately)
+const PAGE_W = (8.5 + 0.125 * 2) * 72; // 630pt — trim + left/right bleed
 const PAGE_H = (8.5 + 0.125 * 2) * 72; // 630pt — trim + top/bottom bleed
 const BLEED = 0.125 * 72;     // 9pt
 const MARGIN = (0.125 + 0.75) * 72; // 63pt (bleed + 0.75" safe area)

@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-const MODEL = "gemini-3.1-flash-image-preview";
+const MODEL = "gemini-3.1-flash-image";
 function getAi() {
   return new GoogleGenAI({ apiKey: process.env.GOOGLE_AI_API_KEY! });
 }
@@ -72,18 +72,42 @@ export async function chat({
 // ─── Phase 1: Generate story beats (text only) ───────────────────────────────
 
 const storyBeatsSchema = z.object({
-  beat_one:    z.string().describe("Page 1 story beat — vivid prose, 3-5 sentences."),
-  beat_two:    z.string().describe("Page 2 story beat — vivid prose, 3-5 sentences."),
-  beat_three:  z.string().describe("Page 3 story beat — vivid prose, 3-5 sentences."),
-  beat_four:   z.string().describe("Page 4 story beat — vivid prose, 3-5 sentences."),
-  beat_five:   z.string().describe("Page 5 story beat — vivid prose, 3-5 sentences."),
-  beat_six:    z.string().describe("Page 6 story beat — vivid prose, 3-5 sentences."),
-  beat_seven:  z.string().describe("Page 7 story beat — vivid prose, 3-5 sentences."),
-  beat_eight:  z.string().describe("Page 8 story beat — vivid prose, 3-5 sentences."),
-  beat_nine:   z.string().describe("Page 9 story beat — vivid prose, 3-5 sentences."),
-  beat_ten:    z.string().describe("Page 10 story beat — vivid prose, 3-5 sentences."),
-  beat_eleven: z.string().describe("Page 11 story beat — vivid prose, 3-5 sentences."),
-  beat_twelve: z.string().describe("Page 12 story beat — vivid prose, 3-5 sentences."),
+  beat_one: z
+    .string()
+    .describe("Page 1 story beat — vivid prose, 3-5 sentences."),
+  beat_two: z
+    .string()
+    .describe("Page 2 story beat — vivid prose, 3-5 sentences."),
+  beat_three: z
+    .string()
+    .describe("Page 3 story beat — vivid prose, 3-5 sentences."),
+  beat_four: z
+    .string()
+    .describe("Page 4 story beat — vivid prose, 3-5 sentences."),
+  beat_five: z
+    .string()
+    .describe("Page 5 story beat — vivid prose, 3-5 sentences."),
+  beat_six: z
+    .string()
+    .describe("Page 6 story beat — vivid prose, 3-5 sentences."),
+  beat_seven: z
+    .string()
+    .describe("Page 7 story beat — vivid prose, 3-5 sentences."),
+  beat_eight: z
+    .string()
+    .describe("Page 8 story beat — vivid prose, 3-5 sentences."),
+  beat_nine: z
+    .string()
+    .describe("Page 9 story beat — vivid prose, 3-5 sentences."),
+  beat_ten: z
+    .string()
+    .describe("Page 10 story beat — vivid prose, 3-5 sentences."),
+  beat_eleven: z
+    .string()
+    .describe("Page 11 story beat — vivid prose, 3-5 sentences."),
+  beat_twelve: z
+    .string()
+    .describe("Page 12 story beat — vivid prose, 3-5 sentences."),
 });
 
 export async function generateStoryBeats({
@@ -135,13 +159,25 @@ Write 12 story beats — short, vivid prose passages of 3-5 sentences each. Toge
 
       const data = storyBeatsSchema.parse(JSON.parse(response.text!));
       return [
-        data.beat_one, data.beat_two, data.beat_three, data.beat_four,
-        data.beat_five, data.beat_six, data.beat_seven, data.beat_eight,
-        data.beat_nine, data.beat_ten, data.beat_eleven, data.beat_twelve,
+        data.beat_one,
+        data.beat_two,
+        data.beat_three,
+        data.beat_four,
+        data.beat_five,
+        data.beat_six,
+        data.beat_seven,
+        data.beat_eight,
+        data.beat_nine,
+        data.beat_ten,
+        data.beat_eleven,
+        data.beat_twelve,
       ];
     } catch (err) {
       lastError = err as Error;
-      console.warn(`[generateStoryBeats] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, lastError.message);
+      console.warn(
+        `[generateStoryBeats] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        lastError.message,
+      );
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
@@ -202,7 +238,9 @@ export async function generateBeatImage({
   // image, so the model can tell which face belongs to which name.
   const portraits = characterPortraits ?? [];
   const portraitParts = portraits.flatMap((p) => [
-    { text: `Character reference portrait — this is ${p.name}. Match this face, hair, and build wherever ${p.name} appears.` },
+    {
+      text: `Character reference portrait — this is ${p.name}. Match this face, hair, and build wherever ${p.name} appears.`,
+    },
     toInlineImage(p.buffer),
   ]);
 
@@ -264,20 +302,28 @@ ${hasPrevious ? `Illustrations from ${styleBuffers.length} other page(s) of this
       throw new Error(`No image data in response for beat ${beatIndex}`);
     } catch (err) {
       lastError = err as Error;
-      console.warn(`[generateBeatImage] Attempt ${attempt}/${MAX_ATTEMPTS} for beat ${beatIndex} failed:`, lastError.message);
+      console.warn(
+        `[generateBeatImage] Attempt ${attempt}/${MAX_ATTEMPTS} for beat ${beatIndex} failed:`,
+        lastError.message,
+      );
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
     }
   }
 
-  console.warn(`[generateBeatImage] All attempts failed for beat ${beatIndex}, skipping.`);
+  console.warn(
+    `[generateBeatImage] All attempts failed for beat ${beatIndex}, skipping.`,
+  );
   return null;
 }
 
 // ─── Generate a storybook-style character portrait ───────────────────────────
 
-export async function generateCharacterPortrait(name: string, description: string): Promise<Buffer | null> {
+export async function generateCharacterPortrait(
+  name: string,
+  description: string,
+): Promise<Buffer | null> {
   const prompt = [
     {
       text: `Create a storybook-style character portrait illustration.
@@ -311,7 +357,10 @@ The portrait should be a warm, expressive illustration in a classic picture book
       throw new Error("No image data in response");
     } catch (err) {
       lastError = err as Error;
-      console.warn(`[generateCharacterPortrait] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, lastError.message);
+      console.warn(
+        `[generateCharacterPortrait] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        lastError.message,
+      );
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((r) => setTimeout(r, 2000 * attempt));
       }

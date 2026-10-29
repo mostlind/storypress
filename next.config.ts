@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "10mb",
     },
+    // Emulated linux/amd64 Docker builds OOM if Next forks a worker per core.
+    cpus: 1,
+    workerThreads: false,
   },
 };
 
